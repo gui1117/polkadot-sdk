@@ -205,6 +205,12 @@ pub type CallOf<T> = <T as frame_system::Config>::RuntimeCall;
 pub type BoundedCallOf<T> = Bounded<CallOf<T>, <T as frame_system::Config>::Hashing>;
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
 
+pub struct DelegateDefaultVotePolicy<AccountId, Balance> {
+	pub conviction: Conviction,
+	pub balance: Balance,
+	pub target: AccountId,
+}
+
 #[frame_support::pallet]
 pub mod pallet {
 	use super::{DispatchResult, *};
@@ -441,6 +447,10 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type MetadataOf<T: Config> = StorageMap<_, Blake2_128Concat, MetadataOwner, T::Hash>;
 
+	/// The default vote policy of an account. If None then the account doesn't delegate its default vote.
+	#[pallet::storage]
+	pub type DelegateDefaultVotePolicyOf<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, DelegateDefaultVotePolicy, OptionQuery>;
+
 	#[pallet::genesis_config]
 	#[derive(frame_support::DefaultNoBound)]
 	pub struct GenesisConfig<T: Config> {
@@ -663,6 +673,31 @@ pub mod pallet {
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			Self::try_vote(&who, ref_index, vote)
+		}
+
+		pub fn effect_default_vote_delegation(
+			origin: OriginFor<T>,
+			#[pallet::compact] ref_index: ReferendumIndex,
+			target: T::AccountId,
+		) -> DispatchResult {
+			// read vote of origin
+			// read delegate default vote policy of target
+			// check that it is delegating to origin
+			// check that target has no vote or the vote is flagged as default
+			// make target vote with a flag that this is default vote
+		}
+
+		pub fn effect_default_vote_delegation_chain(
+			origin: OriginFor<T>,
+			#[pallet::compact] ref_index: ReferendumIndex,
+			target_chain: Vec<T::AccountId>,
+		) -> DispatchResult {
+			// read vote of origin
+			// read delegate default vote policy of all accounts in targets vec.
+			// check that first account in target_chain is delegating its default vote to origin
+			// check that all account in the chain are delegating to previous account
+			// check that all account in the target_chain has no vote or the vote is flagged as default
+			// make last account in target_chain vote with a flag that this is default vote
 		}
 
 		/// Schedule an emergency cancellation of a referendum. Cannot happen twice to the same

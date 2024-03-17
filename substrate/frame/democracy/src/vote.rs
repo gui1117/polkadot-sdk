@@ -173,6 +173,11 @@ pub enum Voting<Balance, AccountId, BlockNumber, MaxVotes: Get<u32>> {
 		/// Any pre-existing locks from past voting/delegating activity.
 		prior: PriorLock<BlockNumber, Balance>,
 	},
+	/// Account hasn't voted direclty,
+	/// The account which which has been delegated to has voted on its behalf.
+	DefaultVoteDelegated {
+		//...
+	},
 }
 
 impl<Balance: Default, AccountId, BlockNumber: Zero, MaxVotes: Get<u32>> Default
