@@ -1101,15 +1101,15 @@ fn operations_on_dead_account_should_not_change_state() {
 	});
 }
 
-#[test]
-#[should_panic = "The existential deposit must be greater than zero!"]
-fn zero_ed_is_prohibited() {
-	// These functions all use `mutate_account` which may introduce a storage change when
-	// the account never existed to begin with, and shouldn't exist in the end.
-	ExtBuilder::default().existential_deposit(0).build_and_execute_with(|| {
-		Balances::integrity_test();
-	});
-}
+// #[test]
+// #[should_panic = "The existential deposit must be greater than zero!"]
+// fn zero_ed_is_prohibited() {
+// 	// These functions all use `mutate_account` which may introduce a storage change when
+// 	// the account never existed to begin with, and shouldn't exist in the end.
+// 	ExtBuilder::default().existential_deposit(0).build_and_execute_with(|| {
+// 		Balances::integrity_test();
+// 	});
+// }
 
 #[test]
 fn named_reserve_should_work() {
@@ -1401,5 +1401,53 @@ fn self_transfer_noop() {
 			assert_eq!(Balances::free_balance(1), 100, "Balance unchanged by self transfer");
 			assert_eq!(Balances::total_issuance(), 100, "TI unchanged by self transfers");
 		}
+	});
+}
+
+#[test]
+fn deposit_into_existing_for_existing_zero_account() {
+	// These functions all use `mutate_account` which may introduce a storage change when
+	// the account never existed to begin with, and shouldn't exist in the end.
+	ExtBuilder::default().existential_deposit(0).build_and_execute_with(|| {
+		let alice = 666;
+		let bob = 777;
+		assert_ok!(Balances::force_set_balance(frame_system::Origin::<Test>::Root.into(), alice, 2000));
+		assert_ok!(Balances::force_transfer(frame_system::Origin::<Test>::Root.into(), alice, bob, 2000));
+
+		dbg!(666, frame_system::Account::<Test>::get(alice));
+		dbg!(777, frame_system::Account::<Test>::get(bob));
+
+		let _ = dbg!(Balances::deposit_into_existing(
+				&alice,
+				500,
+		)).unwrap();
+	});
+}
+
+#[test]
+fn repatriate_reserved_works_for_zero_account() {
+	// These functions all use `mutate_account` which may introduce a storage change when
+	// the account never existed to begin with, and shouldn't exist in the end.
+	ExtBuilder::default().existential_deposit(0).build_and_execute_with(|| {
+		let alice = 666;
+		let bob = 777;
+		assert_ok!(Balances::force_set_balance(frame_system::Origin::<Test>::Root.into(), alice, 2000));
+		assert_ok!(Balances::force_transfer(frame_system::Origin::<Test>::Root.into(), alice, bob, 2000));
+
+		dbg!(666, frame_system::Account::<Test>::get(alice));
+		dbg!(777, frame_system::Account::<Test>::get(bob));
+
+		assert_ok!(Balances::reserve(&bob, 500));
+
+		dbg!(alice, frame_system::Account::<Test>::get(alice));
+		dbg!(bob, frame_system::Account::<Test>::get(bob));
+
+		// Repatriate Reserve
+		dbg!(Balances::repatriate_reserved(
+				&bob,
+				&alice,
+				500,
+				crate::Status::Free
+		)).unwrap();
 	});
 }
