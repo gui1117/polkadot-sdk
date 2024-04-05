@@ -748,6 +748,17 @@ fn transferring_frozen_asset_should_not_work() {
 }
 
 #[test]
+fn force_transferring_a_frozen_asset_from_admin_should_work() {
+	new_test_ext().execute_with(|| {
+		assert_ok!(Assets::force_create(RuntimeOrigin::root(), 0, 1, true, 1));
+		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 1, 100));
+		assert_eq!(Assets::balance(0, 1), 100);
+		assert_ok!(Assets::freeze_asset(RuntimeOrigin::signed(1), 0));
+		assert_ok!(Assets::force_transfer(RuntimeOrigin::signed(1), 0, 1, 2, 50));
+	});
+}
+
+#[test]
 fn approve_transfer_frozen_asset_should_not_work() {
 	new_test_ext().execute_with(|| {
 		Balances::make_free_balance_be(&1, 100);
