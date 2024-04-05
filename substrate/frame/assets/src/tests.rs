@@ -754,7 +754,18 @@ fn force_transferring_a_frozen_asset_from_admin_should_work() {
 		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 1, 100));
 		assert_eq!(Assets::balance(0, 1), 100);
 		assert_ok!(Assets::freeze_asset(RuntimeOrigin::signed(1), 0));
-		assert_ok!(Assets::force_transfer(RuntimeOrigin::signed(1), 0, 1, 2, 50));
+		assert_noop!(
+			Assets::force_transfer(RuntimeOrigin::signed(1), 0, 1, 2, 50),
+			Error::<Test>::AssetNotLive
+		);
+		assert_noop!(
+			Assets::mint(RuntimeOrigin::signed(1), 0, 1, 50),
+			Error::<Test>::AssetNotLive
+		);
+		assert_noop!(
+			Assets::mint(RuntimeOrigin::signed(1), 0, 1, 50),
+			Error::<Test>::AssetNotLive
+		);
 	});
 }
 

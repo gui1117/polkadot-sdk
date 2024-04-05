@@ -41,7 +41,7 @@ pub(super) type ExistenceReasonOf<T, I> =
 pub(super) enum AssetStatus {
 	/// The asset is active and able to be used.
 	Live,
-	/// Whether the asset is frozen for non-admin transfers.
+	/// Whether the asset is frozen for transfers, mints and burns.
 	Frozen,
 	/// The asset is currently being destroyed, and all actions are no longer permitted on the
 	/// asset. Once set to `Destroying`, the asset can never transition back to a `Live` state.
