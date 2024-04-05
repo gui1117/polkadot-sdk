@@ -748,7 +748,7 @@ fn transferring_frozen_asset_should_not_work() {
 }
 
 #[test]
-fn force_transferring_a_frozen_asset_from_admin_should_work() {
+fn no_burns_transfers_mint_even_admin_for_a_frozen_asset() {
 	new_test_ext().execute_with(|| {
 		assert_ok!(Assets::force_create(RuntimeOrigin::root(), 0, 1, true, 1));
 		assert_ok!(Assets::mint(RuntimeOrigin::signed(1), 0, 1, 100));
@@ -763,7 +763,7 @@ fn force_transferring_a_frozen_asset_from_admin_should_work() {
 			Error::<Test>::AssetNotLive
 		);
 		assert_noop!(
-			Assets::mint(RuntimeOrigin::signed(1), 0, 1, 50),
+			Assets::burn(RuntimeOrigin::signed(1), 0, 1, 50),
 			Error::<Test>::AssetNotLive
 		);
 	});
