@@ -46,15 +46,15 @@ pub(super) enum AssetStatus {
 	/// The asset is currently being destroyed, and all actions are no longer permitted on the
 	/// asset. Once set to `Destroying`, the asset can never transition back to a `Live` state.
 	Destroying,
+	/// The asset is active and able to be used, but Owner, Issuer, Admin and Freezer privileges
+	/// are revoked.
+	LiveAndLocked, // LiveAndSelfSovereign LiveAndAutonomous LiveAndPrivilegesRevoked LiveAndTeamRevoked
 }
 
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 pub struct AssetDetails<Balance, AccountId, DepositBalance> {
-	/// Privileged account, can:
-	/// * change `owner`.
-	/// * change and revoke `issuer`, `freezer` and `admin`. Revoked priviledged can only be
-	///   changed by `ForceOrigin`.
-	/// * change and freeze metadata.
+	/// Can change and revoke `owner`, `issuer`, `freezer` and `admin` accounts, can change
+	/// and freeze the metadata, can destroy the asset.
 	pub(super) owner: AccountId,
 	/// Can mint tokens.
 	pub(super) issuer: AccountId,

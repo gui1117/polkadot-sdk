@@ -1687,15 +1687,13 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// Revoke the Owner and the team of an asset irreversibly.
+		/// Revoke irreversibly Issuer, Admin and Freezer privileges of the asset. Freeze the
+		/// metadata.
 		///
-		/// Warning: this action is irreversible. Once the owner of an asset is revoked, the
-		/// ownership privilege cannot be restored. Thus the metadata cannot be changed anymore.
-		/// Furthermore, all Freezer, Admin and Issuer accounts will be revoked.
+		/// Warning: this action is irreversible.
 		///
-		/// The deposit of the asset details and metadata will be burned.
-		/// If no metadata was set then a deposit will be burned.
-		/// Metadata is automatically set to frozen.
+		/// Note: The deposit of the asset details and metadata will be unreserved or withdrawn and
+		/// the then burned.
 		///
 		/// Origin must be Signed and the sender should be the Owner of the asset `id`.
 		///
@@ -1705,7 +1703,7 @@ pub mod pallet {
 		///
 		/// Weight: `O(1)`
 		#[pallet::call_index(33)]
-		pub fn revoke_ownership_and_team(
+		pub fn revoke_ownership_and_team_and_freeze_metadata(
 			origin: OriginFor<T>,
 			id: T::AssetIdParameter,
 		) -> DispatchResult {
