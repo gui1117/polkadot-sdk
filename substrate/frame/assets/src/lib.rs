@@ -192,6 +192,9 @@ pub use pallet::*;
 pub use weights::WeightInfo;
 
 type AccountIdLookupOf<T> = <<T as frame_system::Config>::Lookup as StaticLookup>::Source;
+pub type NegativeImbalanceOf<T, I = ()> = <<T as Config<I>>::Currency as Currency<
+	<T as frame_system::Config>::AccountId,
+>>::NegativeImbalance;
 const LOG_TARGET: &str = "runtime::assets";
 
 /// Trait with callbacks that are executed after successful asset creation or destruction.
@@ -215,7 +218,7 @@ pub mod pallet {
 	use super::*;
 	use frame_support::{
 		pallet_prelude::*,
-		traits::{AccountTouch, ContainsPair},
+		traits::{AccountTouch, ContainsPair, WithdrawReasons, ExistenceRequirement, Imbalance, OnUnbalanced},
 	};
 	use frame_system::pallet_prelude::*;
 
@@ -363,6 +366,10 @@ pub mod pallet {
 
 		/// Callback methods for asset state change (e.g. asset created or destroyed)
 		type CallbackHandle: AssetsCallback<Self::AssetId, Self::AccountId>;
+
+		/// Destination of deposit of revoked asset owner.
+		/// This is used when the owner is revoked, its deposit is transferred to this destination.
+		type OnRevocationDepositDestination: OnUnbalanced<NegativeImbalanceOf<Self, I>>;
 
 		/// Weight information for extrinsics in this pallet.
 		type WeightInfo: WeightInfo;
@@ -1318,6 +1325,8 @@ pub mod pallet {
 
 		/// Alter the attributes of a given asset.
 		///
+		/// NOTE: Use `force_asset_status_with_revokation` for more features
+		///
 		/// Origin must be `ForceOrigin`.
 		///
 		/// - `id`: The identifier of the asset.
@@ -1693,7 +1702,7 @@ pub mod pallet {
 		/// Warning: this action is irreversible.
 		///
 		/// Note: The deposit of the asset details and metadata will be unreserved or withdrawn and
-		/// the then burned.
+		/// then burned.
 		///
 		/// Origin must be Signed and the sender should be the Owner of the asset `id`.
 		///
@@ -1702,7 +1711,7 @@ pub mod pallet {
 		/// Emits `OwnerAndTeamRevoked`.
 		///
 		/// Weight: `O(1)`
-		#[pallet::call_index(33)]
+		#[pallet::call_index(32)]
 		pub fn revoke_ownership_and_team_and_freeze_metadata(
 			origin: OriginFor<T>,
 			id: T::AssetIdParameter,
@@ -1713,27 +1722,45 @@ pub mod pallet {
 			Asset::<T, I>::try_mutate(id.clone(), |maybe_details| {
 				let details = maybe_details.as_mut().ok_or(Error::<T, I>::Unknown)?;
 				ensure!(details.status == AssetStatus::Live, Error::<T, I>::LiveAsset);
-				let owner = details.owner.as_ref().ok_or(Error::<T, I>::NoPermission)?;
-				ensure!(&origin == owner, Error::<T, I>::NoPermission);
+				ensure!(origin == details.owner, Error::<T, I>::NoPermission);
 
-				let metadata_deposit = Metadata::<T, I>::get(&id).deposit;
-				let deposit = details.deposit + metadata_deposit;
+				let old_metadata = Metadata::<T, I>::get(&id);
+				let old_metadata_deposit = old_metadata.deposit;
+				let new_metadata_deposit = Self::calc_metadata_deposit(&old_metadata.name, &old_metadata.symbol);
 
-				// TODO TODO: if metadata is actually none then reserve the new deposit
+				// NOTE: if new deposit is less than old deposit. The excess is not refunded
+				let metadata_deposit_diff = new_metadata_deposit.saturating_sub(old_metadata_deposit);
+				let withdraw = T::Currency::withdraw(
+					&details.owner,
+					metadata_deposit_diff,
+					WithdrawReasons::FEE,
+					ExistenceRequirement::KeepAlive
+				)?;
 
-				let unreserved = T::Currency::unreserve(&owner, deposit);
-				T::Currency::burn(unreserved);
+				// TODO TODO: is slash too strong?
+				let (unreserved, _) = T::Currency::slash_reserved(&details.owner, details.deposit + old_metadata_deposit);
+				T::OnRevocationDepositDestination::on_unbalanced(unreserved.merge(withdraw));
 
-				details.owner = None;
-				details.admin = None;
-				details.freezer = None;
-				details.issuer = None;
+				let new_metadata = AssetMetadata {
+					deposit: Zero::zero(), // It has been burned.
+					name: old_metadata.name,
+					symbol: old_metadata.symbol,
+					decimals: old_metadata.decimals,
+					is_frozen: true,
+				};
+
+				Metadata::<T, I>::insert(&id, new_metadata);
 
 				Self::deposit_event(Event::OwnerAndTeamRevoked { asset_id: id });
+				Self::deposit_event(Event::MetadataSet {
+					asset_id: id,
+					name: new_metadata.name.into(),
+					symbol: new_metadata.symbol.into(),
+					decimals: new_metadata.decimals,
+					is_frozen: new_metadata.is_frozen,
+				});
 				Ok(())
 			})
-			// TODO TODO: can origin go below ED in this situation?
-			// TODO TODO: set metadata to frozen but what if no metadata then ask fund to pay for the metadata deposit!!
 		}
 
 		/// Alter the attributes of a given asset.
@@ -1741,10 +1768,10 @@ pub mod pallet {
 		/// Origin must be `ForceOrigin`.
 		///
 		/// - `id`: The identifier of the asset.
-		/// - `owner`: The new Owner of this asset or none.
-		/// - `issuer`: The new Issuer of this asset or none.
-		/// - `admin`: The new Admin of this asset or none.
-		/// - `freezer`: The new Freezer of this asset or none.
+		/// - `owner`: The new Owner of this asset.
+		/// - `issuer`: The new Issuer of this asset.
+		/// - `admin`: The new Admin of this asset.
+		/// - `freezer`: The new Freezer of this asset.
 		/// - `min_balance`: The minimum balance of this new asset that any single account must
 		/// have. If an account's balance is reduced below this, then it collapses to zero.
 		/// - `is_sufficient`: Whether a non-zero balance of this asset is deposit of sufficient
@@ -1754,33 +1781,33 @@ pub mod pallet {
 		/// growth).
 		/// - `is_frozen`: Whether this asset class is frozen except for permissioned/admin
 		/// instructions.
+		/// TODO TODO: revoke status
 		///
 		/// Emits `AssetStatusChanged` with the identity of the asset.
 		///
 		/// Weight: `O(1)`
-		#[pallet::call_index(34)]
+		#[pallet::call_index(33)]
 		pub fn force_asset_status_with_revokation(
 			origin: OriginFor<T>,
 			id: T::AssetIdParameter,
-			owner: Option<AccountIdLookupOf<T>>,
-			issuer: Option<AccountIdLookupOf<T>>,
-			admin: Option<AccountIdLookupOf<T>>,
-			freezer: Option<AccountIdLookupOf<T>>,
+			owner: AccountIdLookupOf<T>,
+			issuer: AccountIdLookupOf<T>,
+			admin: AccountIdLookupOf<T>,
+			freezer: AccountIdLookupOf<T>,
 			#[pallet::compact] min_balance: T::Balance,
 			is_sufficient: bool,
 			is_frozen: bool,
 		) -> DispatchResult {
 			T::ForceOrigin::ensure_origin(origin)?;
 			let id: T::AssetId = id.into();
-					// TODO TODO: if owner gets revoked then get deposit unreserved
 
 			Asset::<T, I>::try_mutate(id.clone(), |maybe_asset| {
 				let mut asset = maybe_asset.take().ok_or(Error::<T, I>::Unknown)?;
 				ensure!(asset.status != AssetStatus::Destroying, Error::<T, I>::AssetNotLive);
-				asset.owner = owner.map(T::Lookup::lookup).transpose()?;
-				asset.issuer = issuer.map(T::Lookup::lookup).transpose()?;
-				asset.admin = admin.map(T::Lookup::lookup).transpose()?;
-				asset.freezer = freezer.map(T::Lookup::lookup).transpose()?;
+				asset.owner = T::Lookup::lookup(owner)?;
+				asset.issuer = T::Lookup::lookup(issuer)?;
+				asset.admin = T::Lookup::lookup(admin)?;
+				asset.freezer = T::Lookup::lookup(freezer)?;
 				asset.min_balance = min_balance;
 				asset.is_sufficient = is_sufficient;
 				if is_frozen {
@@ -1794,6 +1821,7 @@ pub mod pallet {
 				Ok(())
 			})
 		}
+
 	}
 
 	/// Implements [`AccountTouch`] trait.
