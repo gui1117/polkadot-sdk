@@ -572,6 +572,8 @@ pub mod pallet {
 		Touched { asset_id: T::AssetId, who: T::AccountId, depositor: T::AccountId },
 		/// Some account `who` was blocked.
 		Blocked { asset_id: T::AssetId, who: T::AccountId },
+		/// The owner is revoked.
+		OwnerAndTeamRevoked { asset_id: T::AssetId },
 	}
 
 	#[pallet::error]
@@ -1683,6 +1685,116 @@ pub mod pallet {
 
 			Self::deposit_event(Event::<T, I>::Blocked { asset_id: id, who });
 			Ok(())
+		}
+
+		/// Revoke the Owner and the team of an asset irreversibly.
+		///
+		/// Warning: this action is irreversible. Once the owner of an asset is revoked, the
+		/// ownership privilege cannot be restored. Thus the metadata cannot be changed anymore.
+		/// Furthermore, all Freezer, Admin and Issuer accounts will be revoked.
+		///
+		/// The deposit of the asset details and metadata will be burned.
+		/// If no metadata was set then a deposit will be burned.
+		/// Metadata is automatically set to frozen.
+		///
+		/// Origin must be Signed and the sender should be the Owner of the asset `id`.
+		///
+		/// - `id`: The identifier of the asset.
+		///
+		/// Emits `OwnerAndTeamRevoked`.
+		///
+		/// Weight: `O(1)`
+		#[pallet::call_index(33)]
+		pub fn revoke_ownership_and_team(
+			origin: OriginFor<T>,
+			id: T::AssetIdParameter,
+		) -> DispatchResult {
+			let origin = ensure_signed(origin)?;
+			let id: T::AssetId = id.into();
+
+			Asset::<T, I>::try_mutate(id.clone(), |maybe_details| {
+				let details = maybe_details.as_mut().ok_or(Error::<T, I>::Unknown)?;
+				ensure!(details.status == AssetStatus::Live, Error::<T, I>::LiveAsset);
+				let owner = details.owner.as_ref().ok_or(Error::<T, I>::NoPermission)?;
+				ensure!(&origin == owner, Error::<T, I>::NoPermission);
+
+				let metadata_deposit = Metadata::<T, I>::get(&id).deposit;
+				let deposit = details.deposit + metadata_deposit;
+
+				// TODO TODO: if metadata is actually none then reserve the new deposit
+
+				let unreserved = T::Currency::unreserve(&owner, deposit);
+				T::Currency::burn(unreserved);
+
+				details.owner = None;
+				details.admin = None;
+				details.freezer = None;
+				details.issuer = None;
+
+				Self::deposit_event(Event::OwnerAndTeamRevoked { asset_id: id });
+				Ok(())
+			})
+			// TODO TODO: can origin go below ED in this situation?
+			// TODO TODO: set metadata to frozen but what if no metadata then ask fund to pay for the metadata deposit!!
+		}
+
+		/// Alter the attributes of a given asset.
+		///
+		/// Origin must be `ForceOrigin`.
+		///
+		/// - `id`: The identifier of the asset.
+		/// - `owner`: The new Owner of this asset or none.
+		/// - `issuer`: The new Issuer of this asset or none.
+		/// - `admin`: The new Admin of this asset or none.
+		/// - `freezer`: The new Freezer of this asset or none.
+		/// - `min_balance`: The minimum balance of this new asset that any single account must
+		/// have. If an account's balance is reduced below this, then it collapses to zero.
+		/// - `is_sufficient`: Whether a non-zero balance of this asset is deposit of sufficient
+		/// value to account for the state bloat associated with its balance storage. If set to
+		/// `true`, then non-zero balances may be stored without a `consumer` reference (and thus
+		/// an ED in the Balances pallet or whatever else is used to control user-account state
+		/// growth).
+		/// - `is_frozen`: Whether this asset class is frozen except for permissioned/admin
+		/// instructions.
+		///
+		/// Emits `AssetStatusChanged` with the identity of the asset.
+		///
+		/// Weight: `O(1)`
+		#[pallet::call_index(34)]
+		pub fn force_asset_status_with_revokation(
+			origin: OriginFor<T>,
+			id: T::AssetIdParameter,
+			owner: Option<AccountIdLookupOf<T>>,
+			issuer: Option<AccountIdLookupOf<T>>,
+			admin: Option<AccountIdLookupOf<T>>,
+			freezer: Option<AccountIdLookupOf<T>>,
+			#[pallet::compact] min_balance: T::Balance,
+			is_sufficient: bool,
+			is_frozen: bool,
+		) -> DispatchResult {
+			T::ForceOrigin::ensure_origin(origin)?;
+			let id: T::AssetId = id.into();
+					// TODO TODO: if owner gets revoked then get deposit unreserved
+
+			Asset::<T, I>::try_mutate(id.clone(), |maybe_asset| {
+				let mut asset = maybe_asset.take().ok_or(Error::<T, I>::Unknown)?;
+				ensure!(asset.status != AssetStatus::Destroying, Error::<T, I>::AssetNotLive);
+				asset.owner = owner.map(T::Lookup::lookup).transpose()?;
+				asset.issuer = issuer.map(T::Lookup::lookup).transpose()?;
+				asset.admin = admin.map(T::Lookup::lookup).transpose()?;
+				asset.freezer = freezer.map(T::Lookup::lookup).transpose()?;
+				asset.min_balance = min_balance;
+				asset.is_sufficient = is_sufficient;
+				if is_frozen {
+					asset.status = AssetStatus::Frozen;
+				} else {
+					asset.status = AssetStatus::Live;
+				}
+				*maybe_asset = Some(asset);
+
+				Self::deposit_event(Event::AssetStatusChanged { asset_id: id });
+				Ok(())
+			})
 		}
 	}
 

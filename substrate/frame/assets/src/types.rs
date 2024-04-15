@@ -50,7 +50,11 @@ pub(super) enum AssetStatus {
 
 #[derive(Clone, Encode, Decode, Eq, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
 pub struct AssetDetails<Balance, AccountId, DepositBalance> {
-	/// Can change `owner`, `issuer`, `freezer` and `admin` accounts.
+	/// Privileged account, can:
+	/// * change `owner`.
+	/// * change and revoke `issuer`, `freezer` and `admin`. Revoked priviledged can only be
+	///   changed by `ForceOrigin`.
+	/// * change and freeze metadata.
 	pub(super) owner: AccountId,
 	/// Can mint tokens.
 	pub(super) issuer: AccountId,
