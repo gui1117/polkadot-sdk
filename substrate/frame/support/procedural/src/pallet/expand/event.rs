@@ -79,6 +79,12 @@ pub fn expand_event(def: &mut Def) -> proc_macro2::TokenStream {
 			unreachable!("Checked by event parser")
 		}
 	};
+	let event_where_clause_and_type_info_and_static = super::merge_where_clauses(&[
+		&event.where_clause,
+		&syn::parse_quote! {
+			where Self: #frame_support::__private::scale_info::TypeInfo + 'static
+		},
+	]);
 
 	// Phantom data is added for generic event.
 	if event.gen_kind.is_generic() {
@@ -196,12 +202,14 @@ pub fn expand_event(def: &mut Def) -> proc_macro2::TokenStream {
 			fn from(_: #event_ident<#event_use_gen>) {}
 		}
 
-		impl<#event_impl_gen> #event_ident<#event_use_gen> #event_where_clause {
+		impl<#event_impl_gen> #event_ident<#event_use_gen>
+			#event_where_clause_and_type_info_and_static
+		{
 			#[allow(dead_code)]
 			#[doc(hidden)]
-			pub fn event_metadata<W: #frame_support::__private::scale_info::TypeInfo + 'static>() -> #frame_support::__private::metadata_ir::PalletEventMetadataIR {
+			pub fn event_metadata() -> #frame_support::__private::metadata_ir::PalletEventMetadataIR {
 				#frame_support::__private::metadata_ir::PalletEventMetadataIR {
-					ty: #frame_support::__private::scale_info::meta_type::<W>(),
+					ty: #frame_support::__private::scale_info::meta_type::<Self>(),
 					deprecation_info: #deprecation_status,
 					deprecated_variants: #variants
 				}
